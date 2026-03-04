@@ -58,7 +58,7 @@ O sistema analisa automaticamente o gráfico, extrai os dados e aplica regras é
 - ✅ **Visualização comparativa** (original vs corrigido)
 - ✅ **Download do gráfico corrigido** em PNG
 
-### **Extras**
+### **Extras** Trabalhos futuros
 - 🔄 Detecção automática do tipo de gráfico (opcional)
 - 📊 Histórico de verificações
 - 🎨 Interface amigável com Streamlit
