@@ -7,7 +7,7 @@ Responsável por instanciar o analisador correto baseado no tipo
 import os
 import cv2
 import numpy as np
-from typing import Optional, Dict, Any  # <<< ADICIONAR ESTA LINHA
+from typing import Optional, Dict, Any
 
 from .base import AnalisadorBase
 from .pizza import AnalisadorPizza
@@ -21,6 +21,7 @@ from ..utils.imagem import (
     detectar_contorno_principal, 
     detectar_circulo_principal
 )
+
 
 class FabricaAnalisadores:
     """
@@ -65,7 +66,7 @@ class FabricaAnalisadores:
         Args:
             tipo: Tipo de gráfico ('pizza', 'barras_verticais', 'barras_horizontais', 'linhas')
             imagem_path: Caminho para a imagem
-            num_categorias: Número de categorias (opcional, ajuda na detecção)
+            num_categorias: Número de categorias (para pizza/barras) ou séries (para linhas)
             tesseract_cmd: Caminho do Tesseract (opcional)
             **kwargs: Argumentos adicionais para o analisador
         
@@ -93,13 +94,22 @@ class FabricaAnalisadores:
         if tesseract_cmd is None:
             tesseract_cmd = get_tesseract_path()
         
-        # Criar argumentos
+        # Criar argumentos base
         args = {
             'imagem_path': imagem_path,
             'tesseract_cmd': tesseract_cmd,
-            'num_categorias': num_categorias,
             **kwargs
         }
+        
+        # Adicionar parâmetro correto baseado no tipo
+        if tipo_normalizado == 'linhas':
+            # Para linhas, o parâmetro é num_series
+            if num_categorias is not None:
+                args['num_series'] = num_categorias
+        else:
+            # Para pizza e barras, o parâmetro é num_categorias
+            if num_categorias is not None:
+                args['num_categorias'] = num_categorias
         
         # Instanciar analisador
         analisador_class = cls._TIPOS[tipo_normalizado]

@@ -63,7 +63,7 @@ with st.sidebar:
     )
     
     if uploaded_file:
-        st.image(uploaded_file, caption="Imagem carregada", use_container_width=True)
+        st.image(uploaded_file, caption="Imagem carregada", width='stretch')
         
         st.divider()
         st.header("⚙️ Configurações")
@@ -110,7 +110,7 @@ with st.sidebar:
             num_categorias = None
             
         # PASSO 3: Botão para processar
-        if st.button("🔍 Extrair Dados", type="primary", use_container_width=True):
+        if st.button("🔍 Extrair Dados", type="primary", width='stretch'):
             with st.spinner("Processando imagem..."):
                 try:
                     # Salvar arquivo temporariamente
@@ -160,71 +160,290 @@ if st.session_state.dados_extraidos and not st.session_state.dados_extraidos.get
         st.metric("Fonte", dados['metadados'].get('fonte', 'N/A')[:20])
     
     # =======================================
-    # PASSO 4: REVISÃO E CORREÇÃO DOS DADOS
+    # PASSO 4: REVISÃO E CORREÇÃO DOS DADOS (CORRIGIDO)
     # =======================================
     with st.expander("✏️ PASSO 4: Revisar e corrigir dados extraídos", expanded=True):
         
+        # DIFERENTE PARA CADA TIPO DE GRÁFICO
+        if tipo == 'pizza':
+            # Para pizza, os dados estão em dados['dados_especificos']['fatias']
+            if 'dados_especificos' in dados and 'fatias' in dados['dados_especificos']:
+                fatias = dados['dados_especificos']['fatias']
+                
+                st.markdown("### 🍕 Dados das fatias")
+                st.caption("Edite os valores se necessário")
+                
+                # Criar DataFrame para edição
+                df = pd.DataFrame({
+                    'Categoria': [f.get('rotulo', f'Fatia {i+1}') for i, f in enumerate(fatias)],
+                    'Percentual (%)': [f.get('percentual', 0) for f in fatias]
+                })
+                
+                # Editor de dados
+                edited_df = st.data_editor(
+                    df,
+                    width='stretch',
+                    num_rows="fixed",
+                    use_container_width=True,
+                    column_config={
+                        "Percentual (%)": st.column_config.NumberColumn(
+                            "Percentual (%)",
+                            min_value=0,
+                            max_value=100,
+                            step=0.1,
+                            format="%.1f %%",
+                            required=True
+                        )
+                    }
+                )
+                
+                # Botão para aplicar correções
+                col1, col2, col3 = st.columns([1, 1, 2])
+                with col1:
+                    if st.button("✅ Aplicar correções", type="primary"):
+                        # Atualizar dados
+                        for i, row in edited_df.iterrows():
+                            if i < len(fatias):
+                                fatias[i]['rotulo'] = row['Categoria']
+                                fatias[i]['percentual'] = row['Percentual (%)']
+                        
+                        # Recalcular soma
+                        soma = sum(f['percentual'] for f in fatias)
+                        dados['dados_especificos']['soma_percentuais'] = round(soma, 1)
+                        
+                        st.success("✅ Correções aplicadas com sucesso!")
+                        st.rerun()
+                
+                with col2:
+                    if st.button("🔄 Recalcular percentuais"):
+                        # Recalcular para somar 100%
+                        total = sum(f['percentual'] for f in fatias)
+                        if total > 0:
+                            for f in fatias:
+                                f['percentual'] = round((f['percentual'] / total) * 100, 1)
+                        st.success("✅ Percentuais recalculados para 100%!")
+                        st.rerun()
+                
+                # Mostrar soma total
+                soma_atual = sum(f['percentual'] for f in fatias)
+                if abs(soma_atual - 100) > 0.1:
+                    st.warning(f"⚠️ Soma total: {soma_atual:.1f}% (deveria ser 100%)")
+                else:
+                    st.success(f"✅ Soma total: {soma_atual:.1f}%")
+        
+        elif tipo in ['barras_verticais', 'barras_horizontais']:
+            # Para barras, os dados estão em dados['dados_especificos']['barras']
+            if 'dados_especificos' in dados and 'barras' in dados['dados_especificos']:
+                barras = dados['dados_especificos']['barras']
+                
+                st.markdown(f"### {'📊' if tipo == 'barras_verticais' else '📈'} Dados das barras")
+                st.caption("Edite os valores se necessário")
+                
+                # Criar DataFrame para edição
+                df = pd.DataFrame({
+                    'Categoria': [b.get('rotulo', f'Barra {i+1}') for i, b in enumerate(barras)],
+                    'Valor': [b.get('valor', 0) for b in barras]
+                })
+                
+                # Editor de dados
+                edited_df = st.data_editor(
+                    df,
+                    width='stretch',
+                    num_rows="fixed",
+                    use_container_width=True,
+                    column_config={
+                        "Valor": st.column_config.NumberColumn(
+                            "Valor",
+                            min_value=0,
+                            format="%.1f",
+                            required=True
+                        )
+                    }
+                )
+                
+                # Botão para aplicar correções
+                if st.button("✅ Aplicar correções", type="primary"):
+                    for i, row in edited_df.iterrows():
+                        if i < len(barras):
+                            barras[i]['rotulo'] = row['Categoria']
+                            barras[i]['valor'] = row['Valor']
+                    
+                    # Atualizar também as listas valores/categorias
+                    dados['dados_especificos']['valores'] = [b['valor'] for b in barras]
+                    dados['dados_especificos']['categorias'] = [b['rotulo'] for b in barras]
+                    
+                    st.success("✅ Correções aplicadas com sucesso!")
+                    st.rerun()
+        
+        elif tipo == 'linhas':
+            # Para linhas, mostrar informações das séries
+            if 'dados_especificos' in dados and 'series' in dados['dados_especificos']:
+                series = dados['dados_especificos']['series']
+                
+                st.markdown("### 📉 Dados das séries")
+                st.info("Para gráficos de linhas, a correção manual será implementada em breve.")
+                
+                # Mostrar informações das séries
+                for i, serie in enumerate(series):
+                    with st.expander(f"Série {i+1}: {serie.get('nome', 'Desconhecida')}"):
+                        st.write(f"**Cor:** {serie.get('cor', 'N/A')}")
+                        st.write(f"**Pontos detectados:** {serie.get('total_pontos', 0)}")
+                        
+                        # Mostrar primeiros pontos como exemplo
+                        pontos = serie.get('pontos', [])[:5]
+                        if pontos:
+                            st.write("**Primeiros pontos:**")
+                            for p in pontos:
+                                st.write(f"  • x={p.get('x', 0)}, y={p.get('y_rel', 0)}")
+
+    # =======================================
+    # PASSO 5: VERIFICAÇÃO E RELATÓRIO
+    # =======================================
+    with st.expander("📋 PASSO 5: Verificação e relatório", expanded=True):
+        
+        # Instanciar verificador
+        verificador = VerificadorGrafico()
+        
+        # Preparar dados para o verificador
         if tipo == 'pizza' and 'dados_especificos' in dados:
             fatias = dados['dados_especificos'].get('fatias', [])
+            valores = [f['percentual'] for f in fatias]
+            categorias = [f['rotulo'] for f in fatias]
             
-            st.markdown("### 🍕 Dados das fatias")
+            dados_verificador = {
+                'tipo': 'pizza',
+                'titulo': dados['metadados'].get('titulo', ''),
+                'fonte': dados['metadados'].get('fonte', ''),
+                'valores': valores,
+                'categorias': categorias,
+                'eixo_y_min': 0
+            }
             
-            df = pd.DataFrame({
-                'Categoria': [f.get('rotulo', f'Fatia {i+1}') for i, f in enumerate(fatias)],
-                'Percentual (%)': [f.get('percentual', 0) for f in fatias]
-            })
-            
-            edited_df = st.data_editor(
-                df,
-                use_container_width=True,
-                num_rows="dynamic",
-                column_config={
-                    "Percentual (%)": st.column_config.NumberColumn(
-                        "Percentual (%)",
-                        min_value=0,
-                        max_value=100,
-                        step=0.1,
-                        format="%.1f %%"
-                    )
-                }
-            )
-            
-            if st.button("✅ Aplicar correções"):
-                for i, row in edited_df.iterrows():
-                    if i < len(fatias):
-                        fatias[i]['rotulo'] = row['Categoria']
-                        fatias[i]['percentual'] = row['Percentual (%)']
-                st.success("Correções aplicadas!")
-                st.rerun()
-        
         elif tipo in ['barras_verticais', 'barras_horizontais'] and 'dados_especificos' in dados:
             barras = dados['dados_especificos'].get('barras', [])
+            valores = [b['valor'] for b in barras]
+            categorias = [b['rotulo'] for b in barras]
             
-            st.markdown("### 📊 Dados das barras")
+            # Determinar eixo mínimo
+            if tipo == 'barras_verticais':
+                eixo_min = dados['dados_especificos'].get('eixo_y_min', 0)
+            else:
+                eixo_min = dados['dados_especificos'].get('eixo_x_min', 0)
             
-            df = pd.DataFrame({
-                'Categoria': [b.get('rotulo', f'Barra {i+1}') for i, b in enumerate(barras)],
-                'Valor': [b.get('valor', 0) for b in barras]
-            })
+            dados_verificador = {
+                'tipo': tipo,
+                'titulo': dados['metadados'].get('titulo', ''),
+                'fonte': dados['metadados'].get('fonte', ''),
+                'valores': valores,
+                'categorias': categorias,
+                'eixo_y_min': eixo_min
+            }
             
-            edited_df = st.data_editor(
-                df,
-                use_container_width=True,
-                num_rows="dynamic"
-            )
+        elif tipo == 'linhas' and 'dados_especificos' in dados:
+            series = dados['dados_especificos'].get('series', [])
+            dados_verificador = {
+                'tipo': 'linhas',
+                'titulo': dados['metadados'].get('titulo', ''),
+                'fonte': dados['metadados'].get('fonte', ''),
+                'valores': [s['total_pontos'] for s in series],
+                'categorias': [s['nome'] for s in series],
+                'eixo_y_min': 0
+            }
+        else:
+            dados_verificador = {
+                'tipo': tipo,
+                'titulo': dados['metadados'].get('titulo', ''),
+                'fonte': dados['metadados'].get('fonte', ''),
+                'valores': [],
+                'categorias': [],
+                'eixo_y_min': 0
+            }
+        
+        # Executar verificações
+        with st.spinner("Aplicando regras de verificação..."):
+            resultados = verificador.verificar_tudo(dados_verificador)
+            relatorio = verificador.gerar_relatorio(dados_verificador)
+        
+        # Mostrar resultados em colunas
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("✅ Regras verificadas", verificador.regras_verificadas)
+        with col2:
+            st.metric("✅ Regras aprovadas", verificador.regras_aprovadas)
+        with col3:
+            taxa = relatorio.get('pontuacao', 0)
+            st.metric("📊 Pontuação", f"{taxa:.1f}%")
+        
+        # Mostrar status geral
+        if taxa >= 80:
+            st.success("🎉 **Gráfico APROVADO!** Segue as boas práticas.")
+        elif taxa >= 50:
+            st.warning("⚠️ **Gráfico com RESSALVAS.** Algumas regras não foram atendidas.")
+        else:
+            st.error("❌ **Gráfico REJEITADO.** Múltiplas violações das boas práticas.")
+        
+        # Alertas por severidade
+        if verificador.alertas:
+            # Contar por severidade
+            criticos = [a for a in verificador.alertas if a['severidade'] == 'CRITICA']
+            altos = [a for a in verificador.alertas if a['severidade'] == 'ALTA']
+            medios = [a for a in verificador.alertas if a['severidade'] == 'MEDIA']
+            baixos = [a for a in verificador.alertas if a['severidade'] == 'BAIXA']
             
-            if st.button("✅ Aplicar correções"):
-                for i, row in edited_df.iterrows():
-                    if i < len(barras):
-                        barras[i]['rotulo'] = row['Categoria']
-                        barras[i]['valor'] = row['Valor']
-                st.success("Correções aplicadas!")
-                st.rerun()
+            # Mostrar contagem
+            st.markdown("### ⚠️ Alertas encontrados")
+            
+            cols = st.columns(4)
+            with cols[0]:
+                st.metric("🔴 Críticos", len(criticos))
+            with cols[1]:
+                st.metric("🟠 Altos", len(altos))
+            with cols[2]:
+                st.metric("🟡 Médios", len(medios))
+            with cols[3]:
+                st.metric("🟢 Baixos", len(baixos))
+            
+            # Detalhar cada alerta
+            st.markdown("### 📝 Detalhamento dos alertas")
+            for alerta in verificador.alertas:
+                severidade_emoji = {
+                    'CRITICA': '🔴',
+                    'ALTA': '🟠', 
+                    'MEDIA': '🟡',
+                    'BAIXA': '🟢'
+                }.get(alerta['severidade'], '⚪')
+                
+                st.info(f"{severidade_emoji} **[{alerta['tipo']}]** {alerta['mensagem']}")
+        else:
+            st.success("✅ **Nenhum alerta encontrado!** O gráfico segue todas as boas práticas.")
+        
+        # Mostrar detalhes das regras
+        with st.expander("📋 Detalhes das regras aplicadas"):
+            st.markdown("""
+            ### Regras de verificação:
+            
+            1. **Eixo Y começa em zero** (para gráficos de barras)
+               - Gráficos de barras devem ter eixo Y começando em 0
+               - Evita exagerar diferenças visuais
+            
+            2. **Proporções visuais** (para todos os tipos)
+               - Alturas visuais devem corresponder aos valores numéricos
+               - Para pizza: soma dos percentuais deve ser 100%
+               - Tolerância de 5% de diferença
+            
+            3. **Título presente** (para todos os tipos)
+               - Gráfico deve ter título descritivo
+               - Mínimo de 5 caracteres
+            
+            4. **Fonte dos dados** (para todos os tipos)
+               - Fonte deve ser citada
+               - Garante credibilidade e rastreabilidade
+            """)
     
     # =======================================
-    # PASSO 5: VISUALIZAÇÃO DO GRÁFICO CORRIGIDO
+    # PASSO 6: VISUALIZAÇÃO DO GRÁFICO CORRIGIDO
     # =======================================
-    with st.expander("📊 PASSO 5: Visualizar gráfico corrigido", expanded=True):
+    with st.expander("📊 PASSO 6: Visualizar gráfico corrigido", expanded=True):
         
         # Opções de visualização
         col1, col2 = st.columns(2)
@@ -270,7 +489,7 @@ if st.session_state.dados_extraidos and not st.session_state.dados_extraidos.get
                 data=buf,
                 file_name=f"grafico_corrigido_{tipo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
                 mime="image/png",
-                use_container_width=True
+                width='stretch'
             )
         except Exception as e:
             st.error(f"Erro ao gerar gráfico: {e}")
@@ -286,6 +505,7 @@ else:
         3. **Informar** número de categorias/barras/séries
         4. **Extrair** dados automaticamente
         5. **Revisar** e corrigir dados se necessário
-        6. **Visualizar** gráfico corrigido
-        7. **Baixar** imagem gerada
+        6. **Verificar** regras éticas e gerar relatório
+        7. **Visualizar** gráfico corrigido
+        8. **Baixar** imagem gerada
         """)

@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import re
 from typing import Dict, List, Optional, Tuple, Any
+import pytesseract
 
 from .base import AnalisadorBase
 from ..utils.imagem import (
@@ -63,6 +64,19 @@ class AnalisadorLinhas(AnalisadorBase):
         self._adicionar_mensagem(f"📉 Analisador Linhas inicializado")
         if num_series:
             self._adicionar_mensagem(f"📊 Séries informadas: {num_series}")
+    # scr/analisadores/linhas.py
+    # Adicione este método dentro da classe AnalisadorLinhas (após __init__)
+
+    def _detectar_regioes_grafico(self) -> Optional[Tuple[int, int, int, int]]:
+        """
+        Implementação do método abstrato - detecta região do gráfico.
+        Para gráficos de linhas, usamos a região já separada.
+        """
+        # Retornar as dimensões da região do gráfico
+        if hasattr(self, 'regioes') and 'grafico' in self.regioes:
+            h, w = self.regioes['grafico'].shape[:2]
+            return (0, self.offset_y, w, h)
+        return None
     
     def _get_tipo_grafico(self) -> str:
         return 'linhas'
