@@ -369,28 +369,49 @@ class AnalisadorLinhas(AnalisadorBase):
             # Extrair apenas valores y para facilitar
             serie['valores_y'] = [p['y_rel'] for p in serie['pontos']]
     
+    # scr/analisadores/linhas.py
+    # Modifique o método _criar_dados_especificos (final do arquivo)
+
     def _criar_dados_especificos(self) -> Dict:
         """Cria dicionário com dados específicos de linhas."""
         series_final = []
         
+        # Criar dados para cada série
         for i, serie in enumerate(self.series):
+            # Extrair pontos para tabela
+            pontos_tabela = []
+            for j, ponto in enumerate(serie['pontos']):
+                pontos_tabela.append({
+                    'ponto_id': j + 1,
+                    'x': ponto['x_rel'],
+                    'y': ponto['y_rel']
+                })
+            
             series_final.append({
                 'id': i + 1,
                 'nome': serie['nome'],
                 'cor': serie['cor'],
                 'pontos': serie['pontos'],
+                'pontos_tabela': pontos_tabela,  # Para edição
                 'total_pontos': serie['total_pontos'],
                 'segmentos': serie['segmentos']
             })
+        
+        # Para garantir compatibilidade com o verificador
+        valores_para_verificador = [s['total_pontos'] for s in series_final]
+        categorias_para_verificador = [s['nome'] for s in series_final]
         
         return {
             'tipo': 'linhas',
             'series': series_final,
             'total_series': len(series_final),
             'valores_x': self.valores_x,
-            'total_pontos': sum(s['total_pontos'] for s in series_final)
+            'total_pontos': sum(s['total_pontos'] for s in series_final),
+            # Adicionar estes campos para compatibilidade com o verificador
+            'valores': valores_para_verificador,
+            'categorias': categorias_para_verificador
         }
-    
+        
     def _validar_dados(self, dados: Dict) -> Dict:
         """Valida dados extraídos das linhas."""
         validacoes = super()._validar_dados(dados)

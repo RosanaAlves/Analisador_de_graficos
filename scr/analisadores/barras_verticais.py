@@ -186,7 +186,7 @@ class AnalisadorBarrasVerticais(AnalisadorBase):
             self._adicionar_mensagem(f"📐 Quadro do gráfico: x={x}, y={y+altura_titulo}, w={w}, h={h}")
     
     def _extrair_valores_y(self, gx, gy, gw, gh):
-        """Extrai valores do eixo Y da região esquerda."""
+        """Extrai valores do eixo Y da região esquerda com validação."""
         # Região do eixo Y (esquerda do gráfico)
         regiao_y = self.img[gy:gy+gh, 0:gx]
         
@@ -208,13 +208,20 @@ class AnalisadorBarrasVerticais(AnalisadorBase):
         for match in re.findall(r'(\d+[\.,]?\d*)', texto):
             try:
                 num = float(match.replace(',', '.'))
-                valores.append(num)
+                # VALIDAÇÃO: Valores típicos de percentual (0-100)
+                if 0 <= num <= 100:
+                    valores.append(num)
+                else:
+                    print(f"   ⚠️ Valor ignorado (fora do range 0-100): {num}")
             except:
                 pass
         
         if valores:
+            # Ordenar e remover duplicatas
             self.valores_y = sorted(list(set(valores)))
             self._adicionar_mensagem(f"📊 Valores Y: {self.valores_y}")
+        else:
+            self._adicionar_mensagem("⚠️ Nenhum valor válido encontrado no eixo Y")
     
     def _extrair_rotulos_x(self, y_base_grafico):
         """Extrai rótulos do eixo X."""

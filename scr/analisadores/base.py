@@ -9,13 +9,10 @@ import cv2
 import numpy as np
 from PIL import Image
 import pytesseract
-from typing import Dict, List, Optional, Any, Tuple  # <<< LINHA ADICIONADA
+from typing import Dict, List, Optional, Any, Tuple  
 import os
 import re
 
-# No topo do arquivo, substitua:
-# from ..utils.imagem import ...  (ERRADO)
-# por:
 from scr.utils.imagem import (
     preprocessar_para_ocr,
     carregar_imagem,

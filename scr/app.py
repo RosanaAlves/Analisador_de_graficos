@@ -5,22 +5,166 @@ APLICATIVO PRINCIPAL STREAMLIT
 
 import sys
 import os
+import streamlit as st
+import pandas as pd
+from PIL import Image
+import io
+from datetime import datetime
+import json
+from typing import Dict, List, Optional, Any, Tuple  
+
+#  importar de scr
+from scr.analisadores.fabrica import FabricaAnalisadores
+from scr.utils.visualizacao import GeradorGraficos
+from scr.core.verificador import VerificadorGrafico
+from scr.core.regras import RegrasGrafico
+
+import matplotlib.pyplot as plt
+plt.rcParams['font.family'] = 'DejaVu Sans'
+plt.rcParams['axes.unicode_minus'] = False
+
+# Ou use esta configuração mais robusta:
+import matplotlib
+matplotlib.rcParams['font.family'] = 'sans-serif'
+matplotlib.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans', 'Liberation Sans', 'Bitstream Vera Sans', 'sans-serif']
 
 # Adicionar o diretório raiz ao path
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-import streamlit as st
-import pandas as pd
-from PIL import Image
-import io
-from datetime import datetime
+# Função de debug para mostrar a estrutura dos dados
+def mostrar_estrutura_dados(dados, nivel=0):
+    """Mostra a estrutura completa dos dados para debug"""
+    if dados is None:
+        return "None"
+    
+    resultado = ""
+    espaco = "  " * nivel
+    
+    if isinstance(dados, dict):
+        resultado += f"{espaco}Dict com {len(dados)} chaves:\n"
+        for chave, valor in list(dados.items())[:5]:  # Mostra só as primeiras 5 chaves
+            if isinstance(valor, (dict, list)):
+                resultado += f"{espaco}  - {chave}: {type(valor).__name__}\n"
+            else:
+                resultado += f"{espaco}  - {chave}: {valor}\n"
+        if len(dados) > 5:
+            resultado += f"{espaco}  ... e mais {len(dados)-5} chaves\n"
+    elif isinstance(dados, list):
+        resultado += f"{espaco}Lista com {len(dados)} itens\n"
+        if len(dados) > 0:
+            resultado += f"{espaco}  Primeiro item: {type(dados[0]).__name__}\n"
+    else:
+        resultado += f"{espaco}{type(dados).__name__}: {dados}\n"
+    
+    return resultado
 
-# Agora podemos importar de scr
-from scr.analisadores.fabrica import FabricaAnalisadores
-from scr.utils.visualizacao import GeradorGraficos
-from scr.core.verificador import VerificadorGrafico
+
+# ===========================================
+# FUNÇÕES AUXILIARES (DEFINIR ANTES DE USAR)
+# ===========================================
+
+def mostrar_resultado_verificacao(resultado: Dict, tipo: str):
+    """
+    Mostra o resultado da verificação de forma visual e organizada
+    """
+    if not resultado:
+        st.warning("Resultado da verificação vazio")
+        return
+        
+    pontuacao = resultado.get('pontuacao', 0)
+    alertas = resultado.get('alertas', [])
+    
+    st.markdown("---")
+    
+    # Título com cor baseada na pontuação
+    if pontuacao >= 80:
+        st.success(f"### 🎉 RESULTADO: APROVADO ({pontuacao:.0f}%)")
+    elif pontuacao >= 50:
+        st.warning(f"### ⚠️ RESULTADO: COM RESSALVAS ({pontuacao:.0f}%)")
+    else:
+        st.error(f"### ❌ RESULTADO: REJEITADO ({pontuacao:.0f}%)")
+    
+    # Métricas principais
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("📋 Regras verificadas", resultado.get('total_regras', 0))
+    with col2:
+        st.metric("✅ Regras aprovadas", resultado.get('aprovacoes', 0))
+    with col3:
+        st.metric("📊 Pontuação", f"{pontuacao:.0f}%")
+    
+    # MOSTRAR ALERTAS DIRETAMENTE DO RESULTADO
+    st.markdown("### ⚠️ Alertas encontrados")
+    
+    if not alertas:
+        st.success("✅ Nenhum alerta encontrado! Todas as regras foram aprovadas.")
+    else:
+        # Agrupar alertas por severidade
+        alertas_altos = [a for a in alertas if a.get('severidade') == 'ALTA']
+        alertas_medios = [a for a in alertas if a.get('severidade') == 'MÉDIA']
+        alertas_baixos = [a for a in alertas if a.get('severidade') == 'BAIXA']
+        
+        # Mostrar alertas críticos primeiro
+        if alertas_altos:
+            with st.expander("🔴 CRÍTICOS - Devem ser corrigidos", expanded=True):
+                for alerta in alertas_altos:
+                    st.error(f"""
+                    **{alerta.get('regra')}**  
+                    {alerta.get('mensagem')}  
+                    💡 *Dica: {alerta.get('dica', 'Corrija este item')}*
+                    """)
+        
+        if alertas_medios:
+            with st.expander("🟡 MÉDIOS - Recomenda-se corrigir", expanded=True):
+                for alerta in alertas_medios:
+                    st.warning(f"""
+                    **{alerta.get('regra')}**  
+                    {alerta.get('mensagem')}  
+                    💡 *Dica: {alerta.get('dica', 'Melhore este item')}*
+                    """)
+        
+        if alertas_baixos:
+            with st.expander("🟢 BAIXOS - Sugestões de melhoria", expanded=False):
+                for alerta in alertas_baixos:
+                    st.info(f"""
+                    **{alerta.get('regra')}**  
+                    {alerta.get('mensagem')}  
+                    💡 *Dica: {alerta.get('dica', 'Considere esta melhoria')}*
+                    """)
+    
+    # TABELA DETALHADA COM BASE NOS ALERTAS REAIS
+    with st.expander("📊 Ver detalhamento completo", expanded=False):
+        
+        # Descobrir quantas regras foram realmente avaliadas
+        regras_avaliadas = set()
+        for alerta in alertas:
+            regras_avaliadas.add(alerta.get('regra'))
+        
+        # Adicionar regras que passaram (inferidas)
+        total_regras = resultado.get('total_regras', 0)
+        aprovacoes = resultado.get('aprovacoes', 0)
+        regras_aprovadas = total_regras - len(alertas)
+        
+        st.write(f"**Total de regras avaliadas:** {total_regras}")
+        st.write(f"**Regras com alertas:** {len(alertas)}")
+        st.write(f"**Regras aprovadas:** {regras_aprovadas}")
+        
+        # Tabela de alertas
+        if alertas:
+            df_alertas = pd.DataFrame([
+                {
+                    'Regra': a.get('regra', ''),
+                    'Severidade': a.get('severidade', ''),
+                    'Mensagem': a.get('mensagem', ''),
+                    'Dica': a.get('dica', '')
+                }
+                for a in alertas
+            ])
+            st.dataframe(df_alertas, use_container_width=True)
+        else:
+            st.success("✅ Todas as regras foram aprovadas!")
 
 # ===========================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -159,287 +303,315 @@ if st.session_state.dados_extraidos and not st.session_state.dados_extraidos.get
     with col3:
         st.metric("Fonte", dados['metadados'].get('fonte', 'N/A')[:20])
     
+    
     # =======================================
-    # PASSO 4: REVISÃO E CORREÇÃO DOS DADOS (CORRIGIDO)
+    # PASSO 4: REVISÃO E CORREÇÃO DOS DADOS
     # =======================================
     with st.expander("✏️ PASSO 4: Revisar e corrigir dados extraídos", expanded=True):
         
-        # DIFERENTE PARA CADA TIPO DE GRÁFICO
-        if tipo == 'pizza':
-            # Para pizza, os dados estão em dados['dados_especificos']['fatias']
-            if 'dados_especificos' in dados and 'fatias' in dados['dados_especificos']:
-                fatias = dados['dados_especificos']['fatias']
-                
-                st.markdown("### 🍕 Dados das fatias")
-                st.caption("Edite os valores se necessário")
-                
-                # Criar DataFrame para edição
-                df = pd.DataFrame({
-                    'Categoria': [f.get('rotulo', f'Fatia {i+1}') for i, f in enumerate(fatias)],
-                    'Percentual (%)': [f.get('percentual', 0) for f in fatias]
-                })
-                
-                # Editor de dados
-                edited_df = st.data_editor(
-                    df,
-                    width='stretch',
-                    num_rows="fixed",
-                    use_container_width=True,
-                    column_config={
-                        "Percentual (%)": st.column_config.NumberColumn(
-                            "Percentual (%)",
-                            min_value=0,
-                            max_value=100,
-                            step=0.1,
-                            format="%.1f %%",
-                            required=True
-                        )
-                    }
-                )
-                
-                # Botão para aplicar correções
-                col1, col2, col3 = st.columns([1, 1, 2])
-                with col1:
-                    if st.button("✅ Aplicar correções", type="primary"):
-                        # Atualizar dados
-                        for i, row in edited_df.iterrows():
-                            if i < len(fatias):
-                                fatias[i]['rotulo'] = row['Categoria']
-                                fatias[i]['percentual'] = row['Percentual (%)']
-                        
-                        # Recalcular soma
-                        soma = sum(f['percentual'] for f in fatias)
-                        dados['dados_especificos']['soma_percentuais'] = round(soma, 1)
-                        
-                        st.success("✅ Correções aplicadas com sucesso!")
-                        st.rerun()
-                
-                with col2:
-                    if st.button("🔄 Recalcular percentuais"):
-                        # Recalcular para somar 100%
-                        total = sum(f['percentual'] for f in fatias)
-                        if total > 0:
-                            for f in fatias:
-                                f['percentual'] = round((f['percentual'] / total) * 100, 1)
-                        st.success("✅ Percentuais recalculados para 100%!")
-                        st.rerun()
-                
-                # Mostrar soma total
-                soma_atual = sum(f['percentual'] for f in fatias)
-                if abs(soma_atual - 100) > 0.1:
-                    st.warning(f"⚠️ Soma total: {soma_atual:.1f}% (deveria ser 100%)")
-                else:
-                    st.success(f"✅ Soma total: {soma_atual:.1f}%")
+        st.info(f"Editando gráfico do tipo: **{tipo}**")
         
-        elif tipo in ['barras_verticais', 'barras_horizontais']:
-            # Para barras, os dados estão em dados['dados_especificos']['barras']
-            if 'dados_especificos' in dados and 'barras' in dados['dados_especificos']:
+        # === SEÇÃO DE METADADOS (TÍTULO E FONTE) - DISPONÍVEL PARA TODOS OS TIPOS ===
+        with st.expander("📝 Metadados do gráfico (título e fonte)", expanded=False):
+            st.markdown("#### Editar informações do gráfico")
+            
+            # Editar título
+            titulo_atual = dados['metadados'].get('titulo', '')
+            novo_titulo = st.text_input("Título do gráfico", value=titulo_atual, key="titulo_global")
+            
+            # Editar fonte
+            fonte_atual = dados['metadados'].get('fonte', '')
+            nova_fonte = st.text_input("Fonte dos dados", value=fonte_atual, key="fonte_global")
+            
+            if st.button("✅ Atualizar metadados", key="update_metadados_global"):
+                dados['metadados']['titulo'] = novo_titulo
+                dados['metadados']['fonte'] = nova_fonte
+                st.success("Metadados atualizados!")
+                st.rerun()
+        
+        st.markdown("---")
+        
+        # === EDIÇÃO ESPECÍFICA POR TIPO DE GRÁFICO ===
+        
+        # PIZZA
+        if tipo == 'pizza' and 'dados_especificos' in dados and 'fatias' in dados['dados_especificos']:
+            fatias = dados['dados_especificos']['fatias']
+            
+            st.markdown("### 🍕 Dados das fatias")
+            
+            df = pd.DataFrame({
+                'Categoria': [f.get('rotulo', f'Fatia {i+1}') for i, f in enumerate(fatias)],
+                'Percentual (%)': [f.get('percentual', 0) for f in fatias]
+            })
+            
+            edited_df = st.data_editor(df, use_container_width=True)
+            
+            if st.button("✅ Aplicar correções nas fatias"):
+                for i, row in edited_df.iterrows():
+                    if i < len(fatias):
+                        fatias[i]['rotulo'] = row['Categoria']
+                        fatias[i]['percentual'] = row['Percentual (%)']
+                st.success("Correções aplicadas!")
+                st.rerun()
+        
+        # BARRAS (VERTICAIS E HORIZONTAIS)
+        elif tipo in ['barras_verticais', 'barras_horizontais'] and 'dados_especificos' in dados:
+            if 'barras' in dados['dados_especificos']:
                 barras = dados['dados_especificos']['barras']
                 
                 st.markdown(f"### {'📊' if tipo == 'barras_verticais' else '📈'} Dados das barras")
-                st.caption("Edite os valores se necessário")
                 
-                # Criar DataFrame para edição
+                # Verificar valores inconsistentes
+                valores = [b.get('valor', 0) for b in barras]
+                if valores and max(valores) > 100:
+                    st.warning(f"⚠️ Valor máximo detectado: {max(valores):.1f} (possível erro de OCR - esperado até 100)")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("🔧 Normalizar (dividir por 10)"):
+                            for b in barras:
+                                b['valor'] = b.get('valor', 0) / 10
+                            st.success("Valores normalizados!")
+                            st.rerun()
+                    with col2:
+                        if st.button("✏️ Editar manualmente"):
+                            st.session_state.editando_manual = True
+                
                 df = pd.DataFrame({
                     'Categoria': [b.get('rotulo', f'Barra {i+1}') for i, b in enumerate(barras)],
                     'Valor': [b.get('valor', 0) for b in barras]
                 })
                 
-                # Editor de dados
-                edited_df = st.data_editor(
-                    df,
-                    width='stretch',
-                    num_rows="fixed",
-                    use_container_width=True,
-                    column_config={
-                        "Valor": st.column_config.NumberColumn(
-                            "Valor",
-                            min_value=0,
-                            format="%.1f",
-                            required=True
-                        )
-                    }
-                )
+                edited_df = st.data_editor(df, use_container_width=True)
                 
-                # Botão para aplicar correções
-                if st.button("✅ Aplicar correções", type="primary"):
+                if st.button("✅ Aplicar correções nas barras"):
                     for i, row in edited_df.iterrows():
                         if i < len(barras):
                             barras[i]['rotulo'] = row['Categoria']
                             barras[i]['valor'] = row['Valor']
-                    
-                    # Atualizar também as listas valores/categorias
-                    dados['dados_especificos']['valores'] = [b['valor'] for b in barras]
-                    dados['dados_especificos']['categorias'] = [b['rotulo'] for b in barras]
-                    
-                    st.success("✅ Correções aplicadas com sucesso!")
+                    st.success("Correções aplicadas!")
                     st.rerun()
+            else:
+                st.warning("Nenhuma barra encontrada em 'dados_especificos'")
         
-        elif tipo == 'linhas':
-            # Para linhas, mostrar informações das séries
-            if 'dados_especificos' in dados and 'series' in dados['dados_especificos']:
-                series = dados['dados_especificos']['series']
+        # LINHAS
+        elif tipo == 'linhas' and 'dados_especificos' in dados:
+            st.markdown("### 📉 Dados do gráfico de linhas")
+            
+            # Abas para diferentes tipos de edição
+            tab1, tab2 = st.tabs(["📌 Eixo X", "📊 Séries"])
+            
+            with tab1:
+                st.markdown("#### 📌 Rótulos do eixo X")
+                valores_x = dados['dados_especificos'].get('valores_x', [])
                 
-                st.markdown("### 📉 Dados das séries")
-                st.info("Para gráficos de linhas, a correção manual será implementada em breve.")
+                if valores_x:
+                    df_x = pd.DataFrame({
+                        'Posição': [f'Ponto {i+1}' for i in range(len(valores_x))],
+                        'Rótulo': valores_x
+                    })
+                    
+                    edited_x = st.data_editor(df_x, use_container_width=True, num_rows="dynamic")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("✅ Aplicar rótulos", key="apply_x"):
+                            novos_valores = edited_x['Rótulo'].tolist()
+                            dados['dados_especificos']['valores_x'] = novos_valores
+                            st.success("Rótulos atualizados!")
+                            st.rerun()
+                    
+                    with col2:
+                        if st.button("➕ Adicionar ponto", key="add_x"):
+                            novos_valores = edited_x['Rótulo'].tolist()
+                            novos_valores.append(f"Ponto {len(novos_valores)+1}")
+                            dados['dados_especificos']['valores_x'] = novos_valores
+                            st.success("Ponto adicionado!")
+                            st.rerun()
+                else:
+                    st.warning("Nenhum valor no eixo X detectado")
+                    novo_valor = st.text_input("Adicionar rótulo", key="novo_x")
+                    if st.button("Adicionar", key="add_x_simple") and novo_valor:
+                        dados['dados_especificos']['valores_x'] = [novo_valor]
+                        st.rerun()
+            
+            with tab2:
+                st.markdown("#### 📊 Séries detectadas")
+                series = dados['dados_especificos'].get('series', [])
                 
-                # Mostrar informações das séries
-                for i, serie in enumerate(series):
-                    with st.expander(f"Série {i+1}: {serie.get('nome', 'Desconhecida')}"):
-                        st.write(f"**Cor:** {serie.get('cor', 'N/A')}")
-                        st.write(f"**Pontos detectados:** {serie.get('total_pontos', 0)}")
+                if not series:
+                    st.warning("Nenhuma série detectada")
+                    
+                    # Opção para criar nova série manualmente
+                    with st.expander("➕ Criar nova série manualmente", expanded=True):
+                        nome_serie = st.text_input("Nome da série", value="Nova Série")
+                        cor_serie = st.color_picker("Cor da série", value="#FF0000")
                         
-                        # Mostrar primeiros pontos como exemplo
-                        pontos = serie.get('pontos', [])[:5]
-                        if pontos:
-                            st.write("**Primeiros pontos:**")
-                            for p in pontos:
-                                st.write(f"  • x={p.get('x', 0)}, y={p.get('y_rel', 0)}")
+                        # Criar pontos padrão
+                        num_pontos = st.number_input("Número de pontos", min_value=2, max_value=20, value=5)
+                        
+                        if st.button("Criar série", key="create_series"):
+                            # Converter cor hex para BGR
+                            r = int(cor_serie[1:3], 16)
+                            g = int(cor_serie[3:5], 16)
+                            b = int(cor_serie[5:7], 16)
+                            
+                            # Criar pontos
+                            pontos = []
+                            valores_x = dados['dados_especificos'].get('valores_x', [f"Ponto {i+1}" for i in range(num_pontos)])
+                            
+                            for i in range(num_pontos):
+                                pontos.append({
+                                    'x': i * 50,
+                                    'y': 100 + i * 10,
+                                    'x_rel': i * 50,
+                                    'y_rel': 100 + i * 10
+                                })
+                            
+                            nova_serie = {
+                                'id': len(series) + 1,
+                                'nome': nome_serie,
+                                'cor': (b, g, r),  # BGR
+                                'pontos': pontos,
+                                'total_pontos': num_pontos,
+                                'segmentos': 1
+                            }
+                            
+                            if 'series' not in dados['dados_especificos']:
+                                dados['dados_especificos']['series'] = []
+                            dados['dados_especificos']['series'].append(nova_serie)
+                            st.success("Série criada com sucesso!")
+                            st.rerun()
+                
+                else:
+                    # Listar todas as séries com opções de edição
+                    for idx, serie in enumerate(series):
+                        with st.expander(f"Série {idx+1}: {serie.get('nome', 'Desconhecida')}", expanded=(idx==0)):
+                            col1, col2 = st.columns([3, 1])
+                            
+                            with col1:
+                                # Editar nome da série
+                                novo_nome = st.text_input("Nome da série", 
+                                                        value=serie.get('nome', f'Série {idx+1}'),
+                                                        key=f"nome_serie_{idx}")
+                                
+                                # Editar cor (converter BGR para HEX)
+                                cor_bgr = serie.get('cor', (255, 0, 0))
+                                cor_hex = f"#{cor_bgr[2]:02x}{cor_bgr[1]:02x}{cor_bgr[0]:02x}"
+                                nova_cor = st.color_picker("Cor da série", value=cor_hex, key=f"cor_serie_{idx}")
+                                
+                                # Mostrar estatísticas
+                                st.write(f"**Pontos detectados:** {serie.get('total_pontos', 0)}")
+                            
+                            with col2:
+                                if st.button("🗑️ Remover", key=f"remover_{idx}"):
+                                    series.pop(idx)
+                                    st.success(f"Série removida!")
+                                    st.rerun()
+                            
+                            # Botão para aplicar alterações no nome/cor
+                            if st.button("✅ Aplicar", key=f"aplicar_{idx}"):
+                                # Converter HEX para BGR
+                                r = int(nova_cor[1:3], 16)
+                                g = int(nova_cor[3:5], 16)
+                                b = int(nova_cor[5:7], 16)
+                                
+                                serie['nome'] = novo_nome
+                                serie['cor'] = (b, g, r)
+                                st.success("Alterações aplicadas!")
+                                st.rerun()
+        
+        else:
+            st.warning(f"Tipo de gráfico '{tipo}' não suportado ou dados não encontrados")
 
     # =======================================
     # PASSO 5: VERIFICAÇÃO E RELATÓRIO
     # =======================================
-    with st.expander("📋 PASSO 5: Verificação e relatório", expanded=True):
+    with st.expander("📋 PASSO 5: Verificação e relatório", expanded=False):
         
-        # Instanciar verificador
-        verificador = VerificadorGrafico()
+        st.markdown("### 🔍 Analisando o gráfico segundo critérios específicos")
         
-        # Preparar dados para o verificador
-        if tipo == 'pizza' and 'dados_especificos' in dados:
-            fatias = dados['dados_especificos'].get('fatias', [])
-            valores = [f['percentual'] for f in fatias]
-            categorias = [f['rotulo'] for f in fatias]
-            
-            dados_verificador = {
-                'tipo': 'pizza',
-                'titulo': dados['metadados'].get('titulo', ''),
-                'fonte': dados['metadados'].get('fonte', ''),
-                'valores': valores,
-                'categorias': categorias,
-                'eixo_y_min': 0
-            }
-            
-        elif tipo in ['barras_verticais', 'barras_horizontais'] and 'dados_especificos' in dados:
-            barras = dados['dados_especificos'].get('barras', [])
-            valores = [b['valor'] for b in barras]
-            categorias = [b['rotulo'] for b in barras]
-            
-            # Determinar eixo mínimo
-            if tipo == 'barras_verticais':
-                eixo_min = dados['dados_especificos'].get('eixo_y_min', 0)
-            else:
-                eixo_min = dados['dados_especificos'].get('eixo_x_min', 0)
-            
-            dados_verificador = {
-                'tipo': tipo,
-                'titulo': dados['metadados'].get('titulo', ''),
-                'fonte': dados['metadados'].get('fonte', ''),
-                'valores': valores,
-                'categorias': categorias,
-                'eixo_y_min': eixo_min
-            }
-            
-        elif tipo == 'linhas' and 'dados_especificos' in dados:
-            series = dados['dados_especificos'].get('series', [])
-            dados_verificador = {
-                'tipo': 'linhas',
-                'titulo': dados['metadados'].get('titulo', ''),
-                'fonte': dados['metadados'].get('fonte', ''),
-                'valores': [s['total_pontos'] for s in series],
-                'categorias': [s['nome'] for s in series],
-                'eixo_y_min': 0
-            }
+        # Verificar se temos dados suficientes
+        if 'dados_especificos' not in dados:
+            st.warning("Dados específicos não encontrados para verificação")
         else:
-            dados_verificador = {
-                'tipo': tipo,
-                'titulo': dados['metadados'].get('titulo', ''),
-                'fonte': dados['metadados'].get('fonte', ''),
-                'valores': [],
-                'categorias': [],
-                'eixo_y_min': 0
-            }
-        
-        # Executar verificações
-        with st.spinner("Aplicando regras de verificação..."):
-            resultados = verificador.verificar_tudo(dados_verificador)
-            relatorio = verificador.gerar_relatorio(dados_verificador)
-        
-        # Mostrar resultados em colunas
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("✅ Regras verificadas", verificador.regras_verificadas)
-        with col2:
-            st.metric("✅ Regras aprovadas", verificador.regras_aprovadas)
-        with col3:
-            taxa = relatorio.get('pontuacao', 0)
-            st.metric("📊 Pontuação", f"{taxa:.1f}%")
-        
-        # Mostrar status geral
-        if taxa >= 80:
-            st.success("🎉 **Gráfico APROVADO!** Segue as boas práticas.")
-        elif taxa >= 50:
-            st.warning("⚠️ **Gráfico com RESSALVAS.** Algumas regras não foram atendidas.")
-        else:
-            st.error("❌ **Gráfico REJEITADO.** Múltiplas violações das boas práticas.")
-        
-        # Alertas por severidade
-        if verificador.alertas:
-            # Contar por severidade
-            criticos = [a for a in verificador.alertas if a['severidade'] == 'CRITICA']
-            altos = [a for a in verificador.alertas if a['severidade'] == 'ALTA']
-            medios = [a for a in verificador.alertas if a['severidade'] == 'MEDIA']
-            baixos = [a for a in verificador.alertas if a['severidade'] == 'BAIXA']
+            resultado = None  # Inicializar resultado
             
-            # Mostrar contagem
-            st.markdown("### ⚠️ Alertas encontrados")
+            # Preparar dados para verificação baseado no tipo
+            if tipo == 'pizza':
+                fatias = dados['dados_especificos'].get('fatias', [])
+                if not fatias:
+                    st.warning("Nenhuma fatia encontrada para verificação")
+                else:
+                    dados_verificacao = {
+                        'valores': [f.get('percentual', 0) for f in fatias],
+                        'categorias': [f.get('rotulo', '') for f in fatias],
+                        'titulo': dados['metadados'].get('titulo', ''),
+                        'fonte': dados['metadados'].get('fonte', '')
+                    }
+                    with st.spinner("Aplicando regras para gráfico de pizza..."):
+                        resultado = RegrasGrafico.verificar_pizza(dados_verificacao)
             
-            cols = st.columns(4)
-            with cols[0]:
-                st.metric("🔴 Críticos", len(criticos))
-            with cols[1]:
-                st.metric("🟠 Altos", len(altos))
-            with cols[2]:
-                st.metric("🟡 Médios", len(medios))
-            with cols[3]:
-                st.metric("🟢 Baixos", len(baixos))
+            elif tipo == 'barras_verticais':
+                barras = dados['dados_especificos'].get('barras', [])
+                if not barras:
+                    st.warning("Nenhuma barra encontrada para verificação")
+                else:
+                    dados_verificacao = {
+                        'valores': [b.get('valor', 0) for b in barras],
+                        'categorias': [b.get('rotulo', '') for b in barras],
+                        'eixo_y_min': dados['dados_especificos'].get('eixo_y_min', 0),
+                        'titulo': dados['metadados'].get('titulo', ''),
+                        'fonte': dados['metadados'].get('fonte', '')
+                    }
+                    with st.spinner("Aplicando regras para gráfico de barras verticais..."):
+                        resultado = RegrasGrafico.verificar_barras_verticais(dados_verificacao)
             
-            # Detalhar cada alerta
-            st.markdown("### 📝 Detalhamento dos alertas")
-            for alerta in verificador.alertas:
-                severidade_emoji = {
-                    'CRITICA': '🔴',
-                    'ALTA': '🟠', 
-                    'MEDIA': '🟡',
-                    'BAIXA': '🟢'
-                }.get(alerta['severidade'], '⚪')
+            elif tipo == 'barras_horizontais':
+                barras = dados['dados_especificos'].get('barras', [])
+                if not barras:
+                    st.warning("Nenhuma barra encontrada para verificação")
+                else:
+                    dados_verificacao = {
+                        'valores': [b.get('valor', 0) for b in barras],
+                        'categorias': [b.get('rotulo', '') for b in barras],
+                        'eixo_x_min': dados['dados_especificos'].get('eixo_x_min', 0),
+                        'titulo': dados['metadados'].get('titulo', ''),
+                        'fonte': dados['metadados'].get('fonte', '')
+                    }
+                    with st.spinner("Aplicando regras para gráfico de barras horizontais..."):
+                        resultado = RegrasGrafico.verificar_barras_horizontais(dados_verificacao)
+            
+            elif tipo == 'linhas':
+                series = dados['dados_especificos'].get('series', [])
+                valores_x = dados['dados_especificos'].get('valores_x', [])
                 
-                st.info(f"{severidade_emoji} **[{alerta['tipo']}]** {alerta['mensagem']}")
-        else:
-            st.success("✅ **Nenhum alerta encontrado!** O gráfico segue todas as boas práticas.")
-        
-        # Mostrar detalhes das regras
-        with st.expander("📋 Detalhes das regras aplicadas"):
-            st.markdown("""
-            ### Regras de verificação:
+                if not series:
+                    st.warning("Nenhuma série encontrada para verificação")
+                else:
+                    dados_verificacao = {
+                        'series': series,
+                        'valores_x': valores_x,
+                        'titulo': dados['metadados'].get('titulo', ''),
+                        'fonte': dados['metadados'].get('fonte', '')
+                    }
+                    with st.spinner("Aplicando regras para gráfico de linhas..."):
+                        resultado = RegrasGrafico.verificar_linhas(dados_verificacao)
             
-            1. **Eixo Y começa em zero** (para gráficos de barras)
-               - Gráficos de barras devem ter eixo Y começando em 0
-               - Evita exagerar diferenças visuais
+            else:
+                st.warning(f"Tipo de gráfico '{tipo}' não suportado para verificação detalhada")
             
-            2. **Proporções visuais** (para todos os tipos)
-               - Alturas visuais devem corresponder aos valores numéricos
-               - Para pizza: soma dos percentuais deve ser 100%
-               - Tolerância de 5% de diferença
-            
-            3. **Título presente** (para todos os tipos)
-               - Gráfico deve ter título descritivo
-               - Mínimo de 5 caracteres
-            
-            4. **Fonte dos dados** (para todos os tipos)
-               - Fonte deve ser citada
-               - Garante credibilidade e rastreabilidade
-            """)
-    
+            # MOSTRAR O RESULTADO (se existir)
+            if resultado:
+                st.success("✅ Verificação concluída!")
+                mostrar_resultado_verificacao(resultado, tipo)
+                
+                # DEBUG: Mostrar o resultado bruto (opcional)
+                with st.expander("🔍 Dados brutos da verificação (debug)"):
+                    st.json(resultado)
+            else:
+                st.error("❌ Não foi possível gerar o resultado da verificação")
+
     # =======================================
     # PASSO 6: VISUALIZAÇÃO DO GRÁFICO CORRIGIDO
     # =======================================
