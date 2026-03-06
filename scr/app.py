@@ -33,10 +33,6 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-# Inicializar sessão (adicione esta linha)
-if 'nova_analise' not in st.session_state:
-    st.session_state.nova_analise = False
-
 # Função de debug para mostrar a estrutura dos dados
 def mostrar_estrutura_dados(dados, nivel=0):
     """Mostra a estrutura completa dos dados para debug"""
@@ -318,15 +314,18 @@ st.set_page_config(
     layout="wide"
 )
 
-# Inicializar sessão
+# Inicializar sessão (CORRIGIDO)
 if 'dados_extraidos' not in st.session_state:
     st.session_state.dados_extraidos = None
 if 'dados_corrigidos' not in st.session_state:
     st.session_state.dados_corrigidos = None
 if 'modo_visualizacao' not in st.session_state:
     st.session_state.modo_visualizacao = 'comparativo'
-if 'tipo_grafico' not in st.session_state:
-    st.session_state.tipo_grafico = None
+if 'nova_analise' not in st.session_state:
+    st.session_state.nova_analise = False
+if 'upload_key' not in st.session_state:  
+    st.session_state.upload_key = 0
+
 
 # ===========================================
 # TÍTULO E DESCRIÇÃO
@@ -343,10 +342,14 @@ st.markdown("""
 with st.sidebar:
     st.header("📤 Upload do Gráfico")
     
+    # Usar chave dinâmica para forçar recriação quando necessário
+    upload_key = f"uploader_{st.session_state.upload_key}"
+    
     uploaded_file = st.file_uploader(
         "Escolha uma imagem",
         type=['png', 'jpg', 'jpeg'],
-        help="Formatos aceitos: PNG, JPG, JPEG"
+        help="Formatos aceitos: PNG, JPG, JPEG",
+        key=upload_key
     )
     
     if uploaded_file:
@@ -355,7 +358,7 @@ with st.sidebar:
         st.divider()
         st.header("⚙️ Configurações")
         
-        # PASSO 1: Selecionar tipo de gráfico (widget com key)
+        # PASSO 1: Selecionar tipo de gráfico
         tipo_grafico = st.selectbox(
             "Tipo de gráfico",
             options=['pizza', 'barras_verticais', 'barras_horizontais', 'linhas'],
@@ -365,7 +368,7 @@ with st.sidebar:
                 'barras_horizontais': '📈 Barras Horizontais',
                 'linhas': '📉 Linhas'
             }[x],
-            key='tipo_grafico'  # <-- WIDGET COM KEY
+            key='tipo_grafico'
         )
         
         # PASSO 2: Informar número de categorias
@@ -431,10 +434,13 @@ with st.sidebar:
         if st.session_state.dados_extraidos:
             st.divider()
             if st.button("🆕 Nova Análise", type="secondary", width='stretch'):
-                # Limpar apenas dados, NÃO os widgets
+                # Limpar dados
                 st.session_state.dados_extraidos = None
                 st.session_state.dados_corrigidos = None
-                # Não mexer em st.session_state.tipo_grafico (é um widget)
+                
+                # Incrementar a chave do uploader para forçar recriação
+                st.session_state.upload_key += 1
+                
                 st.rerun()
                 
 # ===========================================
@@ -443,7 +449,7 @@ with st.sidebar:
 if st.session_state.dados_extraidos and not st.session_state.dados_extraidos.get('erro'):
     
     dados = st.session_state.dados_extraidos
-    tipo = st.session_state.tipo_grafico
+    tipo = st.session_state.tipo_grafico  # <-- ACESSO CORRETO AO WIDGET
     
     # Mostrar informações básicas
     st.success("✅ Dados extraídos com sucesso!")
