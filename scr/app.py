@@ -33,6 +33,10 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
+# Inicializar sessão (adicione esta linha)
+if 'nova_analise' not in st.session_state:
+    st.session_state.nova_analise = False
+
 # Função de debug para mostrar a estrutura dos dados
 def mostrar_estrutura_dados(dados, nivel=0):
     """Mostra a estrutura completa dos dados para debug"""
@@ -60,6 +64,73 @@ def mostrar_estrutura_dados(dados, nivel=0):
     
     return resultado
 
+def gerar_relatorio_texto(resultado: Dict, tipo: str, dados: Dict) -> str:
+    """
+    Gera um relatório em formato texto para download
+    """
+    linhas = []
+    linhas.append("=" * 60)
+    linhas.append("RELATÓRIO DE VERIFICAÇÃO DE GRÁFICO - CONRE-3")
+    linhas.append("=" * 60)
+    linhas.append("")
+    
+    # Informações do gráfico
+    linhas.append("📊 INFORMAÇÕES DO GRÁFICO:")
+    linhas.append(f"   • Tipo: {tipo}")
+    linhas.append(f"   • Título: {dados['metadados'].get('titulo', 'N/A')}")
+    linhas.append(f"   • Fonte: {dados['metadados'].get('fonte', 'N/A')}")
+    linhas.append(f"   • Confiança da extração: {dados.get('confianca', 0)}%")
+    linhas.append("")
+    
+    # Resultado da verificação
+    pontuacao = resultado.get('pontuacao', 0)
+    linhas.append("📋 RESULTADO DA VERIFICAÇÃO:")
+    if pontuacao >= 80:
+        linhas.append(f"   🎉 APROVADO - Pontuação: {pontuacao:.1f}%")
+    elif pontuacao >= 50:
+        linhas.append(f"   ⚠️ COM RESSALVAS - Pontuação: {pontuacao:.1f}%")
+    else:
+        linhas.append(f"   ❌ REJEITADO - Pontuação: {pontuacao:.1f}%")
+    linhas.append("")
+    
+    # Métricas
+    linhas.append("📊 MÉTRICAS:")
+    linhas.append(f"   • Regras verificadas: {resultado.get('total_regras', 0)}")
+    linhas.append(f"   • Regras aprovadas: {resultado.get('aprovacoes', 0)}")
+    linhas.append("")
+    
+    # Alertas
+    alertas = resultado.get('alertas', [])
+    if alertas:
+        linhas.append("⚠️ ALERTAS ENCONTRADOS:")
+        
+        # Agrupar por severidade
+        for severidade in ['ALTA', 'MÉDIA', 'BAIXA']:
+            alertas_sev = [a for a in alertas if a.get('severidade') == severidade]
+            if alertas_sev:
+                if severidade == 'ALTA':
+                    linhas.append("   🔴 CRÍTICOS:")
+                elif severidade == 'MÉDIA':
+                    linhas.append("   🟡 MÉDIOS:")
+                else:
+                    linhas.append("   🟢 BAIXOS:")
+                
+                for alerta in alertas_sev:
+                    linhas.append(f"      • {alerta.get('regra')}: {alerta.get('mensagem')}")
+                    linhas.append(f"        💡 Dica: {alerta.get('dica', 'Corrija este item')}")
+                linhas.append("")
+    else:
+        linhas.append("✅ Nenhum alerta encontrado! Todas as regras foram aprovadas.")
+        linhas.append("")
+    
+    # Data e hora
+    from datetime import datetime
+    linhas.append("=" * 60)
+    linhas.append(f"Relatório gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+    linhas.append("CONRE-3 | Ferramenta Educacional v1.0")
+    linhas.append("=" * 60)
+    
+    return "\n".join(linhas)
 
 # ===========================================
 # FUNÇÕES AUXILIARES (DEFINIR ANTES DE USAR)
@@ -95,12 +166,86 @@ def mostrar_resultado_verificacao(resultado: Dict, tipo: str):
     with col3:
         st.metric("📊 Pontuação", f"{pontuacao:.0f}%")
     
-    # MOSTRAR ALERTAS DIRETAMENTE DO RESULTADO
-    st.markdown("### ⚠️ Alertas encontrados")
+    # ===========================================
+    # LISTA COMPLETA DE REGRAS (TODAS AS REGRAS TESTADAS)
+    # ===========================================
+    st.markdown("### 📋 Regras avaliadas")
     
-    if not alertas:
-        st.success("✅ Nenhum alerta encontrado! Todas as regras foram aprovadas.")
-    else:
+    # Dicionário de regras por tipo de gráfico
+    regras_por_tipo = {
+        'pizza': [
+            {'nome': 'Soma total', 'descricao': 'A soma dos percentuais deve ser 100% (±2%)'},
+            {'nome': 'Número de fatias', 'descricao': 'Entre 2 e 8 fatias (recomendado)'},
+            {'nome': 'Rótulos', 'descricao': 'Pelo menos 50% das fatias com rótulos'},
+            {'nome': 'Título', 'descricao': 'Título descritivo (mínimo 5 caracteres)'},
+            {'nome': 'Fonte', 'descricao': 'Fonte dos dados citada'},
+            {'nome': 'Fatias pequenas', 'descricao': 'Evitar fatias menores que 2%'}
+        ],
+        'barras_verticais': [
+            {'nome': 'Eixo começa em zero', 'descricao': 'Eixo Y deve começar em zero'},
+            {'nome': 'Título', 'descricao': 'Título descritivo (mínimo 5 caracteres)'},
+            {'nome': 'Fonte', 'descricao': 'Fonte dos dados citada'},
+            {'nome': 'Rótulos', 'descricao': 'Todas as barras devem ter rótulo'},
+            {'nome': 'Valores positivos', 'descricao': 'Valores devem ser positivos'},
+            {'nome': 'Escala', 'descricao': 'Escala adequada sem grandes variações'}
+        ],
+        'barras_horizontais': [
+            {'nome': 'Eixo começa em zero', 'descricao': 'Eixo X deve começar em zero'},
+            {'nome': 'Título', 'descricao': 'Título descritivo (mínimo 5 caracteres)'},
+            {'nome': 'Fonte', 'descricao': 'Fonte dos dados citada'},
+            {'nome': 'Rótulos', 'descricao': 'Todas as barras devem ter rótulo'},
+            {'nome': 'Ordenação', 'descricao': 'Barras ordenadas por valor (recomendado)'},
+            {'nome': 'Escala', 'descricao': 'Escala adequada sem grandes variações'}
+        ],
+        'linhas': [
+            {'nome': 'Pontos suficientes', 'descricao': 'Mínimo de 3 pontos por série'},
+            {'nome': 'Eixo X rotulado', 'descricao': 'Categorias/datas identificadas'},
+            {'nome': 'Título', 'descricao': 'Título descritivo (mínimo 5 caracteres)'},
+            {'nome': 'Fonte', 'descricao': 'Fonte dos dados citada'},
+            {'nome': 'Legenda', 'descricao': 'Legenda para múltiplas séries'},
+            {'nome': 'Consistência', 'descricao': 'Escala adequada'}
+        ]
+    }
+    
+    # Pegar as regras para o tipo atual
+    regras_teste = regras_por_tipo.get(tipo, regras_por_tipo.get('barras_verticais'))
+    
+    # Criar colunas para exibir as regras
+    col1, col2 = st.columns(2)
+    
+    # Mapear alertas por nome da regra
+    alertas_por_regra = {a.get('regra'): a for a in alertas}
+    
+    for i, regra in enumerate(regras_teste):
+        col = col1 if i % 2 == 0 else col2
+        
+        with col:
+            # Verificar se esta regra tem alerta
+            if regra['nome'] in alertas_por_regra:
+                alerta = alertas_por_regra[regra['nome']]
+                status = alerta.get('status', '❌')
+                severidade = alerta.get('severidade', '')
+                
+                if severidade == 'ALTA':
+                    st.error(f"**{status} {regra['nome']}**")
+                elif severidade == 'MÉDIA':
+                    st.warning(f"**{status} {regra['nome']}**")
+                else:
+                    st.info(f"**{status} {regra['nome']}**")
+                
+                st.caption(f"{regra['descricao']}")
+                st.caption(f"💡 *{alerta.get('mensagem', '')}*")
+            else:
+                # Regra aprovada
+                st.success(f"**✅ {regra['nome']}**")
+                st.caption(f"{regra['descricao']}")
+    
+    # ===========================================
+    # ALERTAS DETALHADOS POR SEVERIDADE
+    # ===========================================
+    if alertas:
+        st.markdown("### ⚠️ Detalhamento dos alertas")
+        
         # Agrupar alertas por severidade
         alertas_altos = [a for a in alertas if a.get('severidade') == 'ALTA']
         alertas_medios = [a for a in alertas if a.get('severidade') == 'MÉDIA']
@@ -133,38 +278,36 @@ def mostrar_resultado_verificacao(resultado: Dict, tipo: str):
                     {alerta.get('mensagem')}  
                     💡 *Dica: {alerta.get('dica', 'Considere esta melhoria')}*
                     """)
+    else:
+        st.success("✅ Nenhum alerta encontrado! Todas as regras foram aprovadas.")
     
-    # TABELA DETALHADA COM BASE NOS ALERTAS REAIS
-    with st.expander("📊 Ver detalhamento completo", expanded=False):
+    # ===========================================
+    # TABELA DETALHADA
+    # ===========================================
+    with st.expander("📊 Ver tabela detalhada", expanded=False):
+        # Criar DataFrame com todas as regras
+        dados_tabela = []
         
-        # Descobrir quantas regras foram realmente avaliadas
-        regras_avaliadas = set()
-        for alerta in alertas:
-            regras_avaliadas.add(alerta.get('regra'))
+        for regra in regras_teste:
+            if regra['nome'] in alertas_por_regra:
+                alerta = alertas_por_regra[regra['nome']]
+                dados_tabela.append({
+                    'Regra': regra['nome'],
+                    'Status': alerta.get('status', '❌'),
+                    'Descrição': alerta.get('mensagem', regra['descricao']),
+                    'Severidade': alerta.get('severidade', '')
+                })
+            else:
+                dados_tabela.append({
+                    'Regra': regra['nome'],
+                    'Status': '✅',
+                    'Descrição': 'Aprovado',
+                    'Severidade': '-'
+                })
         
-        # Adicionar regras que passaram (inferidas)
-        total_regras = resultado.get('total_regras', 0)
-        aprovacoes = resultado.get('aprovacoes', 0)
-        regras_aprovadas = total_regras - len(alertas)
-        
-        st.write(f"**Total de regras avaliadas:** {total_regras}")
-        st.write(f"**Regras com alertas:** {len(alertas)}")
-        st.write(f"**Regras aprovadas:** {regras_aprovadas}")
-        
-        # Tabela de alertas
-        if alertas:
-            df_alertas = pd.DataFrame([
-                {
-                    'Regra': a.get('regra', ''),
-                    'Severidade': a.get('severidade', ''),
-                    'Mensagem': a.get('mensagem', ''),
-                    'Dica': a.get('dica', '')
-                }
-                for a in alertas
-            ])
-            st.dataframe(df_alertas, use_container_width=True)
-        else:
-            st.success("✅ Todas as regras foram aprovadas!")
+        if dados_tabela:
+            df = pd.DataFrame(dados_tabela)
+            st.dataframe(df, use_container_width=True)
 
 # ===========================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -212,7 +355,7 @@ with st.sidebar:
         st.divider()
         st.header("⚙️ Configurações")
         
-        # PASSO 1: Selecionar tipo de gráfico
+        # PASSO 1: Selecionar tipo de gráfico (widget com key)
         tipo_grafico = st.selectbox(
             "Tipo de gráfico",
             options=['pizza', 'barras_verticais', 'barras_horizontais', 'linhas'],
@@ -222,7 +365,7 @@ with st.sidebar:
                 'barras_horizontais': '📈 Barras Horizontais',
                 'linhas': '📉 Linhas'
             }[x],
-            key='tipo_grafico'
+            key='tipo_grafico'  # <-- WIDGET COM KEY
         )
         
         # PASSO 2: Informar número de categorias
@@ -283,7 +426,17 @@ with st.sidebar:
                     st.error(f"❌ Erro: {str(e)}")
                     import traceback
                     traceback.print_exc()
-
+        
+        # BOTÃO DE NOVA ANÁLISE (CORRIGIDO)
+        if st.session_state.dados_extraidos:
+            st.divider()
+            if st.button("🆕 Nova Análise", type="secondary", width='stretch'):
+                # Limpar apenas dados, NÃO os widgets
+                st.session_state.dados_extraidos = None
+                st.session_state.dados_corrigidos = None
+                # Não mexer em st.session_state.tipo_grafico (é um widget)
+                st.rerun()
+                
 # ===========================================
 # ÁREA PRINCIPAL - RESULTADOS
 # ===========================================
@@ -605,6 +758,17 @@ if st.session_state.dados_extraidos and not st.session_state.dados_extraidos.get
             if resultado:
                 st.success("✅ Verificação concluída!")
                 mostrar_resultado_verificacao(resultado, tipo)
+                
+                # BOTÃO PARA BAIXAR RELATÓRIO
+                relatorio_texto = gerar_relatorio_texto(resultado, tipo, dados)
+                
+                st.download_button(
+                    label="📥 Baixar Relatório Completo",
+                    data=relatorio_texto,
+                    file_name=f"relatorio_{tipo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    mime="text/plain",
+                    width='stretch'
+                )
                 
                 # DEBUG: Mostrar o resultado bruto (opcional)
                 with st.expander("🔍 Dados brutos da verificação (debug)"):
